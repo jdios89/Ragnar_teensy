@@ -2,9 +2,6 @@
 '''
 Node to write and read from the Serial teensy controlling the ragnar robot
 '''
-
-#import roslib
-
 import rospy
 import tf
 import numpy as np
@@ -19,29 +16,36 @@ from std_msgs.msg import String
 
 from SerialDataGateway import SerialDataGateway
 
+from ragnar_teensy.srv import *
+
 class Teensy(object):
     '''
     Helper class for communicating with an Arduino board over serial port
     '''
     def _HandleReceivedLine(self, line):
+        #print(line)
+        #print(len(line))
         self._Counter = self._Counter + 1
         #self._speedsimupub.publish(String(str(self._Counter) + " " + line))
         if (len(line) > 0):
             lineParts = line.split('\t')
+            #print(ord(lineParts[0][11]))
+            #print("there")
             if (lineParts[0] == 'q'):
-                self._printThis(lineParts)
+                #self._printThis(lineParts)
                 self._JointsPublisher(lineParts)
                 return
             if (lineParts[0] == 'o'):
                 #self._BroadcastOdometry(lineParts)
                 return
-            if (lineParts[0] == "InitializeBaseController"):
+            if (lineParts[0] == "activate_me"):
+                # rospy.loginfo("i am here in activation")
                 # controller requesting initialization
-                #self._InitializeBase()
+                self._InitializeController()
                 return
             if (lineParts[0] == "Active"):
                 # controller requesting initialization
-                #self._IsActive()
+                self._IsActive()
                 return
             if (lineParts[0] == 'p'):
                 #self._printThis(lineParts)
@@ -67,7 +71,6 @@ class Teensy(object):
         z = posereceived.pose.position.z
         message = 'G0 %0.4f %0.4f %0.4f\r\n' % (x,y,z)
         rospy.loginfo(message)
-
         return
  
     def _JointsPublisher(self, lineParts):
@@ -111,7 +114,6 @@ class Teensy(object):
             rospy.logwarn("Unexpected error:" + str(sys.exc_info()[0]))        
 
     def _WriteSerial(self, message):
-        #self._SerialPublisher.publish(String(str(self._Counter) + ", out: " + message))
         self._SerialDataGateway.Write(message)
 
     def __init__(self, port="/dev/ttyACM0", baudrate=57600):
@@ -124,13 +126,26 @@ class Teensy(object):
         rospy.init_node('teensy_ragnar')              
         port = rospy.get_param("~port", "/dev/ttyACM0")
         baudRate = int(rospy.get_param("~baudRate", 57600))
-        rospy.loginfo("Starting with serial port: " + port + ", baud rate: " + str(baudRate))
-        self._SerialDataGateway = SerialDataGateway(port, baudRate,  self._HandleReceivedLine)
+        rospy.loginfo("Starting with serial port: " + \
+            port + ", baud rate: " + str(baudRate))
+        self._SerialDataGateway = SerialDataGateway(port, baudRate, \
+            self._HandleReceivedLine)
         # Initialize publishers and subscribers 
-        rospy.Subscriber("RagnarRefPose_test", PoseStamped, self._Pose, queue_size=10)
-        self._JointStatePublisher = rospy.Publisher("RagnarJointState", JointState, queue_size=10)
-        self._PosePublisher = rospy.Publisher("RagnarPose", PoseStamped, queue_size=10)
-                
+        rospy.Subscriber("ragnar_ref_pose_test", PoseStamped, self._Pose, \
+            queue_size=10)
+        self._JointStatePublisher = rospy.Publisher("ragnar_joints_state", \
+            JointState, queue_size=10)
+        self._PosePublisher = rospy.Publisher("ragnar_pose", PoseStamped, \
+            queue_size=10)
+        self._InfoPublisher = rospy.Publisher("service_info", String, \
+            queue_size=10)
+        # Create services to change the mass inertia matrix 
+        self._ApparentMassService = rospy.Service('set_mass_matrix', \
+            threeby3Matrix, self._sendMassMatrix)
+        self._ApparentDampService = rospy.Service('set_damping_matrix', \
+            threeby3Matrix, self._sendBMatrix)
+        self._ApparentStiffnessService = rospy.Service('set_stiffness_matrix', \
+            threeby3Matrix, self._sendKMatrix)        
 
     def Start(self):
         rospy.logdebug("Starting")
@@ -139,6 +154,64 @@ class Teensy(object):
     def Stop(self):
         rospy.logdebug("Stopping")
         self._SerialDataGateway.Stop()
+
+    def _sendMassMatrix(self, request):
+        '''
+        Function to send the mass matrix on service request
+        '''
+        m11 = request.threeby3Matrix.data[0]
+        m12 = request.threeby3Matrix.data[1]
+        m13 = request.threeby3Matrix.data[2]
+        m21 = request.threeby3Matrix.data[3]
+        m22 = request.threeby3Matrix.data[4]
+        m23 = request.threeby3Matrix.data[5]
+        m31 = request.threeby3Matrix.data[6]
+        m32 = request.threeby3Matrix.data[7]
+        m33 = request.threeby3Matrix.data[8]
+
+
+        message = 'Mm'
+        print(message)
+        publishs = String()
+        publishs.data = message
+        self._InfoPublisher.publish(publishs)
+        rospy.loginfo("Received Mass Matrix")
+        return threeby3MatrixResponse()
+
+    def _sendBMatrix(self, request):
+        '''
+        Function to send the mass matrix on service request
+        '''
+        b11 = request.threeby3Matrix.data[0]
+        b12 = request.threeby3Matrix.data[1]
+        b13 = request.threeby3Matrix.data[2]
+        b21 = request.threeby3Matrix.data[3]
+        b22 = request.threeby3Matrix.data[4]
+        b23 = request.threeby3Matrix.data[5]
+        b31 = request.threeby3Matrix.data[6]
+        b32 = request.threeby3Matrix.data[7]
+        b33 = request.threeby3Matrix.data[8]
+        rospy.loginfo("Received Damp Matrix")
+        message = 'Bm'
+        return threeby3MatrixResponse()
+
+    def _sendKMatrix(self, request):
+        '''
+        Function to send the mass matrix on service request
+        '''
+        k11 = request.threeby3Matrix.data[0]
+        k12 = request.threeby3Matrix.data[1]
+        k13 = request.threeby3Matrix.data[2]
+        k21 = request.threeby3Matrix.data[3]
+        k22 = request.threeby3Matrix.data[4]
+        k23 = request.threeby3Matrix.data[5]
+        k31 = request.threeby3Matrix.data[6]
+        k32 = request.threeby3Matrix.data[7]
+        k33 = request.threeby3Matrix.data[8]
+        rospy.loginfo("Received Stiffness Matrix")
+        message = 'Km'
+        return threeby3MatrixResponse()
+
                 
     def _sendImu(self, request):
         """ Service to enable or disable imu for odometry"""
@@ -168,27 +241,12 @@ class Teensy(object):
         self._WriteSerial(message)
         return #linearscaleResponse()
    
-    def _InitializeBase(self):
-        """ Writes an initializing string to start the Base """
-        imuen = rospy.get_param("~imuenable", "True")
-        if imuen:
-            message = 'Startimu\r'
-        else:
-            message = 'Startnoimu\r'
-
-        rospy.loginfo("Initializing Base " + message)
-        #self._WriteSerial(message)
-               
-        lincorrection = rospy.get_param("~linear_correction", 1.0)
-        angcorrection = rospy.get_param("~angular_correction", 0.984)
-        #message = 'ascale %d %d\r' % self._GetBaseAndExponent(angcorrection)
-        #rospy.loginfo("Sending correction value: " + message)
-        #self._WriteSerial(message)
-        #message = 'lscale %d %d\r' % self._GetBaseAndExponent(lincorrection)
-        rospy.loginfo("Sending correction value: " + message)
-        #self._WriteSerial(message)
-
-
+    def _InitializeController(self):
+        """ Writes an initializing string to start the Controller communication """
+        rospy.loginfo("Initializing Controller")
+        message = "activate\r\n"
+        self._WriteSerial(message)
+        
     def _IsActive(self):
         rospy.loginfo("Is Active")
 

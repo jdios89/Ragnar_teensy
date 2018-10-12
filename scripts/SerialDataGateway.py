@@ -50,7 +50,7 @@ class SerialDataGateway(object):
                         data = self._Serial.read()
                         if data == '\r' : #carriage /r
                                 pass # self._Counter = self._Counter + 1                       
-                        if data == '\n' : #new line /n
+                        elif data == '\n' : #new line /n
                                 self.ReceivedLineHandler(stringIO.getvalue())
                                 stringIO.close()
                                 stringIO = StringIO()
