@@ -68,7 +68,7 @@ class SerialDataGateway(object):
                 self._Serial.write(data)
 
 if __name__ == '__main__':
-    dataReceiver = SerialDataGateway("/dev/ttyACM2",  250000)
+    dataReceiver = SerialDataGateway("/dev/ttyACM0",  250000)
     dataReceiver.Start()
 
     raw_input("Hit <Enter> to end.")

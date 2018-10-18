@@ -13,6 +13,7 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState 
 from std_msgs.msg import String
+from ragnar_msgs.msg import CartesianTrajectoryPoint
 
 from SerialDataGateway import SerialDataGateway
 
@@ -23,7 +24,7 @@ class Teensy(object):
     Helper class for communicating with an Arduino board over serial port
     '''
     def _HandleReceivedLine(self, line):
-        #print(line)
+        print(line)
         #print(len(line))
         self._Counter = self._Counter + 1
         #self._speedsimupub.publish(String(str(self._Counter) + " " + line))
@@ -47,7 +48,8 @@ class Teensy(object):
                 # controller requesting initialization
                 self._IsActive()
                 return
-            if (lineParts[0] == 'p'):
+            if (lineParts[0] == "OK"):
+                rospy.loginfo("OK from controller")
                 #self._printThis(lineParts)
                 return
             if (lineParts[0] == 'w'):
@@ -62,15 +64,40 @@ class Teensy(object):
         for x in range(1, partsCount):
             rospy.loginfo("Printing: " + lineParts[x])
 
-    def _Pose(self, posereceived):
+    def _CartesianTrajectory(self, pointreceived):
         '''
         Function to receive information from Arduino
-        '''
-        x = posereceived.pose.position.x
-        y = posereceived.pose.position.y
-        z = posereceived.pose.position.z
-        message = 'G0 %0.4f %0.4f %0.4f\r\n' % (x,y,z)
+        '''        
+        x = pointreceived.pose.position.x
+        y = pointreceived.pose.position.y
+        z = pointreceived.pose.position.z
+        dx = pointreceived.twist.linear.x
+        dy = pointreceived.twist.linear.y
+        dz = pointreceived.twist.linear.z
+        ddx = pointreceived.accel.linear.x
+        ddy = pointreceived.accel.linear.y
+        ddz = pointreceived.accel.linear.z
+
+        vector_command = [x, y, z, dx, dy, dz, ddx, ddy, ddz]
+        # Cut all the zeros to the right of the decimal points 
+        message = 'G0'
+        for i in range(0,9):
+            message = message + ' '
+            if abs(int(vector_command[i]*10000)) - abs(int(vector_command[i]*1000)*10) > 0:
+                message = message + '%0.4f' % vector_command[i]
+            elif abs(int(vector_command[i]*1000)) - abs(int(vector_command[i]*100)*10) > 0:
+                message = message + '%0.3f' % vector_command[i]
+            elif abs(int(vector_command[i]*100)) - abs(int(vector_command[i]*10)*10) > 0:
+                message = message + '%0.2f' % vector_command[i]
+            else:
+                message = message + '%0.1f' % vector_command[i]
+        
+
+        #message = 'G0 %0.3f %0.3f %0.3f %0.4f %0.3f %0.3f %0.3f %0.3f %0.3f' % (x,y,z,dx,dy,dz,ddx,ddy,ddz)
+        message = message + '\r\n'# + ' 0.0 0.0 0.0 0.0 0.0 0.0\r\n'
+        self._WriteSerial(message)
         rospy.loginfo(message)
+        rospy.loginfo('change')
         return
  
     def _JointsPublisher(self, lineParts):
@@ -89,16 +116,9 @@ class Teensy(object):
             x = float(lineParts[5])
             y = float(lineParts[6])
             z = float(lineParts[7])
-
-            #quaternion = tf.transformations.quaternion_from_euler(0, 0, theta)
             joints = JointState()
             joints.name = ["joint_1", "joint_2", "joint_3", "joint_4"]
             joints.position = [theta_1, theta_2, theta_3, theta_4]
-            #quaternion = Quaternion()
-            #quaternion.x = 0.0
-            #quaternion.y = 0.0
-            #quaternion.z = sin(theta/2.0)
-            #quaternion.w = cos(theta/2.0)
             rosNow = rospy.Time.now()
             self._JointStatePublisher.publish(joints)
             posenow = PoseStamped()
@@ -131,7 +151,7 @@ class Teensy(object):
         self._SerialDataGateway = SerialDataGateway(port, baudRate, \
             self._HandleReceivedLine)
         # Initialize publishers and subscribers 
-        rospy.Subscriber("ragnar_ref_pose_test", PoseStamped, self._Pose, \
+        rospy.Subscriber("mobile_platform_trajectory", CartesianTrajectoryPoint, self._CartesianTrajectory, \
             queue_size=10)
         self._JointStatePublisher = rospy.Publisher("ragnar_joints_state", \
             JointState, queue_size=10)
@@ -152,25 +172,20 @@ class Teensy(object):
         self._SerialDataGateway.Start()
  
     def Stop(self):
-        rospy.logdebug("Stopping")
+        rospy.logdebug("Stoping")
         self._SerialDataGateway.Stop()
 
     def _sendMassMatrix(self, request):
         '''
         Function to send the mass matrix on service request
         '''
-        m11 = request.threeby3Matrix.data[0]
-        m12 = request.threeby3Matrix.data[1]
-        m13 = request.threeby3Matrix.data[2]
-        m21 = request.threeby3Matrix.data[3]
-        m22 = request.threeby3Matrix.data[4]
-        m23 = request.threeby3Matrix.data[5]
-        m31 = request.threeby3Matrix.data[6]
-        m32 = request.threeby3Matrix.data[7]
-        m33 = request.threeby3Matrix.data[8]
+        massmatrix = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        message = 'Mm '
+        for x in range(0, 9):
+            massmatrix[x] = request.threeby3Matrix.data[x]
+            message = message + '%d' % massmatrix[x] + ' '
 
-
-        message = 'Mm'
+        message = message + '\r\n'
         print(message)
         publishs = String()
         publishs.data = message
@@ -182,32 +197,27 @@ class Teensy(object):
         '''
         Function to send the mass matrix on service request
         '''
-        b11 = request.threeby3Matrix.data[0]
-        b12 = request.threeby3Matrix.data[1]
-        b13 = request.threeby3Matrix.data[2]
-        b21 = request.threeby3Matrix.data[3]
-        b22 = request.threeby3Matrix.data[4]
-        b23 = request.threeby3Matrix.data[5]
-        b31 = request.threeby3Matrix.data[6]
-        b32 = request.threeby3Matrix.data[7]
-        b33 = request.threeby3Matrix.data[8]
+        dampmatrix = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        message = 'Bm '
+        for x in range(0, 9):
+            dampmatrix[x] = x # request.threeby3Matrix.data[x]
+            message = message + '%d' % dampmatrix[x] + ' '
+
+        message = message + '\r\n'
         rospy.loginfo("Received Damp Matrix")
-        message = 'Bm'
         return threeby3MatrixResponse()
 
     def _sendKMatrix(self, request):
         '''
         Function to send the mass matrix on service request
         '''
-        k11 = request.threeby3Matrix.data[0]
-        k12 = request.threeby3Matrix.data[1]
-        k13 = request.threeby3Matrix.data[2]
-        k21 = request.threeby3Matrix.data[3]
-        k22 = request.threeby3Matrix.data[4]
-        k23 = request.threeby3Matrix.data[5]
-        k31 = request.threeby3Matrix.data[6]
-        k32 = request.threeby3Matrix.data[7]
-        k33 = request.threeby3Matrix.data[8]
+        kmatrix = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        message = 'Km '
+        for x in range(0, 9):
+            kmatrix[x] = x # request.threeby3Matrix.data[x]
+            message = message + '%d' % kmatrix[x] + ' '
+
+        message = message + '\r\n'
         rospy.loginfo("Received Stiffness Matrix")
         message = 'Km'
         return threeby3MatrixResponse()
