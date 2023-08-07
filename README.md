@@ -1,5 +1,5 @@
 # Ragnar_teensy
-ROS node to communicate the teensy 3.6 to ROS through serial. 
+ROS node to communicate the [RAGNAR robot](https://nyheder.tv2.dk/business/2017-03-24-moed-ragnar-han-kan-lave-22000-stykker-sushi-i-timen) to ROS through serial. 
 
 ## Package
 
